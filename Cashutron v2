@@ -1,0 +1,187 @@
+//Put an expiration date in the bot to prevent theft
+//--Expiratoin date did not throw any errors - Need to test still
+// ---Expiration date passed all testing - 100% functional
+
+//Making selections for True/False inputs
+
+//+------------------------------------------------------------------+
+//|                        Cashutron Martingale                      |
+//|        Copyright 2022, Lightning Creek LLC - Michael Linville    |
+//|                    lightningcreekgroup@gmail.com                 |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2022, Lightning Creek LLC / Michael Linville"
+#property link      "lightningcreekgroup@gmail.com"
+#property version   "v1.2.01"
+#property strict
+
+//+------------------------------------------------------------------+
+//| Inputs                                                           |
+//+------------------------------------------------------------------+
+enum List
+ {
+  T=0,  //True
+  F=1,   //False
+  };
+
+
+input double    LotSizeFactor=1.375; //Lot Size Factor
+input double    MaxLotSize=2.0;      // Max Lot
+input double    MinLotSize=0.02;     // Min Lot
+input double    Entry_Spread=40;     // Entry Spread
+input double    Take_Profit = 40;    // Take Profit
+input int       MAGIC=72122;         // Magic Number
+input           List Buys_Active = 1;   // Buy Active?
+input           List Sells_active = 1;  // Sells active?
+
+
+//+------------------------------------------------------------------+
+//| Initialize Parameters                                            |
+//+------------------------------------------------------------------+
+
+   datetime expiryDate = D'2022.10.01'; //Establish an expiration date
+   double OP_Last = iClose(NULL,PERIOD_M1,1); //Intialize with previous 1min close price
+   double ENTRY = 0; //Initialize entry price
+   string BUY_VALID = "INVALID"; //Initialize buy validity
+   string SELL_VALID = "INVALID"; //Initialize sell validity
+   double TLOT = 0; //Initialize temprorary combined lots
+   double EFPRICE = 0; //Initialize effective entry price
+   string SYM = Symbol(); //Initialize indepedent symbols
+   double TP = Take_Profit/100; //Initialize take profit digits
+   double Spread = Entry_Spread/100; // Initialize spread digits
+   string Active = "Active";  //Initialize expiration variable
+
+int OnInit()
+  {
+//---
+//---
+   return(INIT_SUCCEEDED);
+  }
+   
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+
+void OnTick()
+{
+//--- 
+   if (TimeCurrent() > expiryDate)
+      {
+      Active = "Inactive";
+      }
+   
+   double OP = iClose(NULL,PERIOD_M1,1); //Previous 1min close price
+   
+   int SYMn = 0;
+   
+   for (int i = 0; i < OrdersTotal(); i++)
+   {
+      if (OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==true)
+      {
+         if (OrderMagicNumber()==MAGIC && SYM==OrderSymbol())
+         {
+            SYMn = SYMn + 1;
+         }
+      }          
+   }
+   
+   if (BUY_VALID=="BUY" && Ask<=(ENTRY-Spread) && MaxLotSize>=NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2))
+   {
+      OrderSend(NULL,OP_BUY,NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2),Ask,0,0,0,NULL,MAGIC,0,clrGreen);//enter position
+      
+      TLOT = TLOT + NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2);
+      EFPRICE = EFPRICE + NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2)*Ask;
+      
+      for (int i=0; i < OrdersTotal(); i++)
+      {
+         if (OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==true)
+         {
+            if (OrderMagicNumber()==MAGIC && SYM==OrderSymbol())
+            {
+               OrderModify(OrderTicket(),OrderOpenPrice(),0,(EFPRICE/TLOT) + TP,0,clrGreen);
+            }
+         }          
+      }
+      ENTRY = Ask;
+   }
+   if (SELL_VALID=="SELL" && Bid>=(ENTRY+Spread) && MaxLotSize>=NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2))
+   {
+      OrderSend(NULL,OP_SELL,NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2),Bid,0,0,0,NULL,MAGIC,0,clrRed);//enter position
+      
+      TLOT = TLOT + NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2);
+      EFPRICE = EFPRICE + NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2)*Bid;
+      
+      for (int i=0; i < OrdersTotal(); i++)
+      {
+         if (OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==true)
+         {
+            if (OrderMagicNumber()==MAGIC && SYM==OrderSymbol())
+            {
+               OrderModify(OrderTicket(),OrderOpenPrice(),0,(EFPRICE/TLOT) - TP,0,clrRed);
+            }
+         }          
+      }
+      ENTRY = Bid;
+   }
+   
+   if (BUY_VALID=="BUY" && SYMn==0)
+   {
+      BUY_VALID = "INVALID";
+   }
+   if (SELL_VALID=="SELL" && SYMn==0)
+   {
+      SELL_VALID = "INVALID";
+   }
+   
+   if (OP!=OP_Last && Active == "Active")//New 1min Window
+   {
+       if (Bid<OP && SYMn==0 && Buys_Active == 0)//BUY
+      { 
+         OrderSend(NULL,OP_BUY,MinLotSize,Ask,0,0,(Ask+TP),NULL,MAGIC,0,clrGreen);//enter position
+         TLOT = MinLotSize;
+         EFPRICE = MinLotSize*Ask;
+         ENTRY = Ask;
+         BUY_VALID = "BUY";
+      }
+      
+      if (Bid>OP && SYMn==0 && Sells_active == 0)//SELL
+      { 
+         OrderSend(NULL,OP_SELL,MinLotSize,Bid,0,0,(Bid-TP),NULL,MAGIC,0,clrRed);//enter position
+         TLOT = MinLotSize;
+         EFPRICE = MinLotSize*Bid;
+         ENTRY = Bid;
+         SELL_VALID = "SELL";
+      }
+      OP_Last = OP;
+   }
+   
+   if (MaxLotSize<NormalizeDouble(MinLotSize*MathPow(LotSizeFactor,SYMn),2))
+   {
+      if (BUY_VALID=="BUY")
+      {
+         for (int i=OrdersTotal()-1; i>=0; i--)
+         {
+            if (OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==true)
+            {
+               if (OrderMagicNumber()==MAGIC && SYM==OrderSymbol())
+               {
+                  OrderModify(OrderTicket(),OrderOpenPrice(),(ENTRY - Spread),(EFPRICE/TLOT) + TP,0,clrGreen);
+               }
+            }          
+         }
+      }
+      if (SELL_VALID=="SELL")
+      {
+         for (int i=OrdersTotal()-1; i>=0; i--)
+         {
+            if (OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==true)
+            {
+               if (OrderMagicNumber()==MAGIC && SYM==OrderSymbol())
+               {
+                  OrderModify(OrderTicket(),OrderOpenPrice(),(ENTRY + Spread),(EFPRICE/TLOT) - TP,0,clrRed);
+               }
+            }          
+         }
+      }
+   }
+ }     
+//--- 
