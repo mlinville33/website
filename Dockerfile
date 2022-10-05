@@ -3,6 +3,6 @@ RUN apk add --no-cache python2 g++ make
 WORKDIR /website
 COPY . .
 RUN yarn install --production
-CMD ["node", "src/index.js"]
+CMD ["node", "index.js"]
 EXPOSE 3000
 
